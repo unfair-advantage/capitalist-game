@@ -11,13 +11,22 @@ import happyImg    from "./assets/happy.png";
 export type CapitalistMood = "idle" | "angry" | "pleased" | "ecstatic" | "disgusted";
 
 export interface EvalResponse {
-  score:    number;       // 0–100
-  message:  string;
-  mood:     CapitalistMood;
+  score:     number;        // 0–100
+  message:   string;
+  mood:      CapitalistMood;
+  ideaId?:   string;        // backend assigns an id to allow starring
   isGolden?: boolean;
 }
 
-// ─── Mood → image mapping ─────────────────────────────────────────────────────
+export interface IdeaRecord {
+  id:        string;
+  text:      string;
+  score:     number;
+  isGolden:  boolean;
+  createdAt: string;
+}
+
+// ─── Asset map (supports PNG and SVG — both work as <img src> values) ────────
 
 const MOOD_IMAGE: Record<CapitalistMood, string> = {
   idle:      neutralImg,
@@ -38,7 +47,7 @@ const IDLE_MESSAGES: string[] = [
   "Mediocrity is free. Excellence costs effort. Pay up.",
 ];
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Speech Bubble ────────────────────────────────────────────────────────────
 
 interface SpeechBubbleProps {
   message: string;
@@ -58,112 +67,203 @@ function SpeechBubble({ message, mood, animKey }: SpeechBubbleProps) {
   );
 }
 
-interface QuotaBarProps {
-  current: number;
-  target:  number;
-}
+// ─── Quota Bar ────────────────────────────────────────────────────────────────
 
-function QuotaBar({ current, target }: QuotaBarProps) {
+function QuotaBar({ current, target }: { current: number; target: number }) {
   const pct  = Math.min(current / target, 1) * 100;
   const done = current >= target;
-
   return (
     <div className="quota-bar-wrap">
-      <span
-        className="material-symbols-rounded quota-icon"
-        style={{ color: done ? "var(--green)" : "var(--gold)" }}
-      >
+      <span className="material-symbols-rounded quota-icon"
+            style={{ color: done ? "var(--green)" : "var(--accent)" }}>
         {done ? "task_alt" : "pending_actions"}
       </span>
-
       <div className="quota-track">
-        <div
-          className="quota-fill"
-          style={{
-            width:      `${pct}%`,
-            background: done ? "var(--green)" : "var(--gold)",
-          }}
-        />
+        <div className="quota-fill"
+             style={{ width: `${pct}%`, background: done ? "var(--green)" : "var(--accent)" }} />
       </div>
-
       <span className="quota-label">{current}/{target} ideas today</span>
     </div>
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
+// ─── Ideas Drawer ─────────────────────────────────────────────────────────────
+
+interface DrawerProps {
+  onClose: () => void;
+}
+
+function IdeasDrawer({ onClose }: DrawerProps) {
+  const [ideas,   setIdeas]   = useState<IdeaRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+
+  // ── Fetch idea history from backend ────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const res = await fetch("/api/ideas");
+        if (!res.ok) throw new Error(`${res.status}`);
+        const data: IdeaRecord[] = await res.json();
+        if (!cancelled) setIdeas(data);
+      } catch {
+        if (!cancelled) setError("Couldn't load ideas. The market is volatile.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <>
+      {/* clicking outside closes the drawer */}
+      <div className="drawer-overlay" onClick={onClose} aria-hidden="true" />
+
+      <aside className="drawer" role="dialog" aria-label="Your ideas">
+        <div className="drawer-header">
+          <span className="drawer-title">YOUR IDEAS</span>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <span className="material-symbols-rounded">close</span>
+          </button>
+        </div>
+
+        <div className="drawer-body">
+          {loading && (
+            <div className="drawer-loading">
+              <div className="spinner" />
+              <span>Counting your pennies…</span>
+            </div>
+          )}
+
+          {error && !loading && (
+            <div className="drawer-empty">
+              <span className="material-symbols-rounded">wifi_off</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {!loading && !error && ideas.length === 0 && (
+            <div className="drawer-empty">
+              <span className="material-symbols-rounded">lightbulb</span>
+              <span>No ideas yet. Get to work.</span>
+            </div>
+          )}
+
+          {!loading && !error && ideas.map(idea => (
+            <div key={idea.id} className={`idea-item${idea.isGolden ? " golden" : ""}`}>
+              {idea.isGolden && (
+                <span className="material-symbols-rounded idea-star-icon">star</span>
+              )}
+              <span className="idea-item-text">{idea.text}</span>
+              <span className="idea-item-score">{idea.score}/100</span>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function MainScreen() {
-  const [mood,       setMood]       = useState<CapitalistMood>("idle");
-  const [message,    setMessage]    = useState<string>(IDLE_MESSAGES[0]);
-  const [inputText,  setInputText]  = useState<string>("");
-  const [isLoading,  setIsLoading]  = useState<boolean>(false);
-  const [ideasToday, setIdeasToday] = useState<number>(0);
-  const [shake,      setShake]      = useState<boolean>(false);
-  const [bubbleKey,  setBubbleKey]  = useState<number>(0);
+  const [mood,          setMood]          = useState<CapitalistMood>("idle");
+  const [enterClass,    setEnterClass]    = useState<string>("enter-idle");
+  const [message,       setMessage]       = useState<string>(IDLE_MESSAGES[0]);
+  const [inputText,     setInputText]     = useState<string>("");
+  const [isLoading,     setIsLoading]     = useState<boolean>(false);
+  const [ideasToday,    setIdeasToday]    = useState<number>(0);
+  const [shake,         setShake]         = useState<boolean>(false);
+  const [bubbleKey,     setBubbleKey]     = useState<number>(0);
+  const [drawerOpen,    setDrawerOpen]    = useState<boolean>(false);
+  const [lastIdeaId,    setLastIdeaId]    = useState<string | null>(null);
+  const [isStarred,     setIsStarred]     = useState<boolean>(false);
 
-  const inputRef     = useRef<HTMLInputElement>(null);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const inputRef      = useRef<HTMLInputElement>(null);
+  const idleTimerRef  = useRef<ReturnType<typeof setTimeout>>();
+  const enterTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // ── Expose mood setter so the backend / WS layer can call it ───────────────
-  // Usage: window.setCapitalistMood("angry", "That idea is WORTHLESS!")
+  // ── Helper: change mood + play enter animation once ───────────────────────
+  const applyMood = useCallback((newMood: CapitalistMood) => {
+    clearTimeout(enterTimerRef.current);
+    setEnterClass(`enter-${newMood}`);
+    setMood(newMood);
+    // remove class after animation finishes so it can re-trigger next time
+    enterTimerRef.current = setTimeout(() => setEnterClass(""), 700);
+  }, []);
+
+  // ── Expose global setter for backend/WS usage ─────────────────────────────
+  // window.setCapitalistMood("angry", "That idea is garbage!")
   useEffect(() => {
     (window as any).setCapitalistMood = (
-      newMood:    CapitalistMood,
+      newMood:     CapitalistMood,
       newMessage?: string,
     ) => {
-      setMood(newMood);
+      applyMood(newMood);
       if (newMessage) {
         setMessage(newMessage);
         setBubbleKey(k => k + 1);
       }
-      if (newMood === "angry" || newMood === "disgusted") {
-        triggerShake();
-      }
+      if (newMood === "angry" || newMood === "disgusted") triggerShake();
     };
+    return () => { delete (window as any).setCapitalistMood; };
+  }, [applyMood]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return () => {
-      delete (window as any).setCapitalistMood;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Idle message rotation ──────────────────────────────────────────────────
+  // ── Idle message rotation ─────────────────────────────────────────────────
   useEffect(() => {
     const rotate = () => {
       setMood(prev => {
         if (prev === "idle") {
-          const idx = Math.floor(Math.random() * IDLE_MESSAGES.length);
-          setMessage(IDLE_MESSAGES[idx]);
+          setMessage(IDLE_MESSAGES[Math.floor(Math.random() * IDLE_MESSAGES.length)]);
           setBubbleKey(k => k + 1);
         }
         return prev;
       });
       idleTimerRef.current = setTimeout(rotate, 6_000);
     };
-
     idleTimerRef.current = setTimeout(rotate, 6_000);
     return () => clearTimeout(idleTimerRef.current);
   }, []);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const triggerShake = useCallback(() => {
     setShake(true);
     setTimeout(() => setShake(false), 600);
   }, []);
 
   const pushMessage = useCallback((text: string, newMood: CapitalistMood) => {
-    setMood(newMood);
+    applyMood(newMood);
     setMessage(text);
     setBubbleKey(k => k + 1);
-  }, []);
+  }, [applyMood]);
 
-  // ── Send idea to backend ───────────────────────────────────────────────────
+  // ── Star current idea ─────────────────────────────────────────────────────
+  const starIdea = useCallback(async () => {
+    if (!lastIdeaId || isStarred) return;
+    setIsStarred(true);         // optimistic
+
+    try {
+      const res = await fetch(`/api/ideas/${lastIdeaId}/star`, { method: "POST" });
+      if (!res.ok) throw new Error();
+    } catch {
+      setIsStarred(false);      // rollback on failure
+    }
+  }, [lastIdeaId, isStarred]);
+
+  // ── Send idea ─────────────────────────────────────────────────────────────
   const sendIdea = useCallback(async () => {
     const idea = inputText.trim();
     if (!idea || isLoading) return;
 
     setIsLoading(true);
     setInputText("");
+    setLastIdeaId(null);
+    setIsStarred(false);
     pushMessage("Analysing your pathetic little idea…", "idle");
 
     try {
@@ -173,18 +273,17 @@ export default function MainScreen() {
         body:    JSON.stringify({ idea }),
       });
 
-      if (!res.ok) throw new Error(`Server responded ${res.status}`);
+      if (!res.ok) throw new Error(`${res.status}`);
 
       const data: EvalResponse = await res.json();
 
       pushMessage(data.message, data.mood);
       setIdeasToday(n => n + 1);
+      if (data.ideaId)  setLastIdeaId(data.ideaId);
+      if (data.isGolden) setIsStarred(true);
 
-      if (data.mood === "angry" || data.mood === "disgusted") {
-        triggerShake();
-      }
-    } catch (_err) {
-      // Fallback while backend isn't wired up yet
+      if (data.mood === "angry" || data.mood === "disgusted") triggerShake();
+    } catch {
       pushMessage("NETWORK FAILURE?! Even your infrastructure is a bad idea!", "angry");
       triggerShake();
     } finally {
@@ -193,10 +292,7 @@ export default function MainScreen() {
   }, [inputText, isLoading, pushMessage, triggerShake]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendIdea();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendIdea(); }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -206,35 +302,42 @@ export default function MainScreen() {
 
       {/* ── Top bar ── */}
       <header className="top-bar">
-        <button className="icon-btn" aria-label="Menu">
+        <button className="icon-btn" aria-label="Menu"
+                onClick={() => setDrawerOpen(true)}>
           <span className="material-symbols-rounded">menu</span>
         </button>
 
         <h1 className="app-title">GIVE ME IDEAS</h1>
 
-        <button className="icon-btn" aria-label="Golden Fund">
-          <span className="material-symbols-rounded">stars</span>
+        <button
+          className={`icon-btn star-btn${isStarred ? " starred" : ""}`}
+          aria-label={isStarred ? "Idea starred" : "Star this idea"}
+          onClick={starIdea}
+          disabled={!lastIdeaId || isStarred}
+          title={!lastIdeaId ? "Submit an idea first" : isStarred ? "Already starred" : "Star this idea"}
+        >
+          <span className="material-symbols-rounded">
+            {isStarred ? "star" : "star_border"}
+          </span>
         </button>
       </header>
 
       {/* ── Main content ── */}
       <main className="main-content">
 
-        {/* Speech bubble */}
         <SpeechBubble message={message} mood={mood} animKey={bubbleKey} />
 
-        {/* Capitalist character */}
         <div className={`character-wrap mood-${mood}`}>
           <div className="character-shadow" />
           <img
-            className="character-img"
+            key={mood}                            /* remount on mood change so CSS enter-anim fires */
+            className={`character-img ${enterClass}`}
             src={MOOD_IMAGE[mood]}
             alt={`Capitalist – ${mood}`}
             draggable={false}
           />
         </div>
 
-        {/* Daily quota */}
         <QuotaBar current={ideasToday} target={2} />
 
       </main>
@@ -270,6 +373,9 @@ export default function MainScreen() {
           <span className="material-symbols-rounded">send</span>
         </button>
       </footer>
+
+      {/* ── Ideas drawer ── */}
+      {drawerOpen && <IdeasDrawer onClose={() => setDrawerOpen(false)} />}
 
     </div>
   );
