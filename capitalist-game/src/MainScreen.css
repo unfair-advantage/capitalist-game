@@ -1,0 +1,196 @@
+/* Material You Dark Theme Variables */
+:root {
+  --md-sys-color-background: #1c1b1f;
+  --md-sys-color-on-background: #e6e1e5;
+  --md-sys-color-surface: #202124;
+  --md-sys-color-surface-variant: #49454f;
+  --md-sys-color-on-surface-variant: #cac4d0;
+  --md-sys-color-primary-container: #4f378b;
+  --md-sys-color-on-primary-container: #eaddff;
+  --md-sys-color-error: #f2b8b5;
+  --md-sys-color-success: #b5f2c3;
+  
+  --border-radius-pill: 9999px;
+  --border-radius-large: 16px;
+}
+
+body {
+  margin: 0;
+  background-color: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-background);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.game-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 600px;
+  margin: 0 auto;
+  background-color: #4a4a4a; /* Matches your screenshot background */
+  overflow: hidden;
+}
+
+/* Header */
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+  color: #ffffff;
+}
+
+.header-spacer {
+  width: 48px; /* Matches icon button width for perfect centering */
+}
+
+/* Main Content */
+.game-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+}
+
+/* Message Bubble */
+.message-container {
+  padding: 0 24px;
+  margin-bottom: 24px;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+}
+
+.message-bubble {
+  background-color: var(--md-sys-color-surface);
+  border: 4px solid #2d2d2d;
+  border-radius: var(--border-radius-large);
+  padding: 16px 24px;
+  position: relative;
+  animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.message-bubble h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* Bubble Tail */
+.message-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -20px;
+  right: 24px;
+  border-width: 20px 20px 0 0;
+  border-style: solid;
+  border-color: #2d2d2d transparent transparent transparent;
+  display: block;
+  width: 0;
+}
+
+/* Dynamic Text Colors */
+.message-bubble.angry h2 { color: var(--md-sys-color-error); }
+.message-bubble.happy h2 { color: var(--md-sys-color-success); }
+.message-bubble.neutral h2 { color: #ffffff; }
+.message-bubble.thinking h2 { color: var(--md-sys-color-on-surface-variant); }
+
+/* Character */
+.character-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  flex: 1;
+}
+
+.character-image {
+  max-width: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+  transition: opacity 0.3s ease;
+}
+
+/* Input Area */
+.input-area {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background-color: #383838;
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+}
+
+.input-wrapper {
+  flex: 1;
+  background-color: var(--md-sys-color-on-background);
+  border-radius: var(--border-radius-pill);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+}
+
+.idea-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+  padding: 16px 0;
+  text-transform: uppercase;
+}
+
+.idea-input::placeholder {
+  color: #888;
+}
+
+.action-button {
+  background-color: var(--md-sys-color-on-background);
+  color: #333;
+  border: none;
+  border-radius: var(--border-radius-large);
+  width: 56px;
+  height: 56px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s;
+}
+
+.action-button:active {
+  transform: scale(0.95);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Animations */
+@keyframes popIn {
+  0% { transform: scale(0.8) translateY(20px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.pulsate {
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.02); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.8; }
+}
