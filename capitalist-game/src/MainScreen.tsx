@@ -1,116 +1,276 @@
-import React, { useState, FormEvent } from 'react';
-import './MainScreen.css';
+import { useState, useEffect, useRef, useCallback } from "react";
+import "./MainScreen.css";
 
-// Types
-type CapitalistMood = 'neutral' | 'angry' | 'happy' | 'thinking';
+import neutralImg  from "./assets/ok.png";
+import thinkingImg from "./assets/confused.png";
+import angryImg    from "./assets/angry.png";
+import happyImg    from "./assets/happy.png";
 
-interface IdeaResponse {
-  mood: CapitalistMood;
-  message: string;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type CapitalistMood = "idle" | "angry" | "pleased" | "ecstatic" | "disgusted";
+
+export interface EvalResponse {
+  score:    number;       // 0–100
+  message:  string;
+  mood:     CapitalistMood;
+  isGolden?: boolean;
 }
 
-export const MainScreen: React.FC = () => {
-  const [inputText, setInputText] = useState('');
-  const [mood, setMood] = useState<CapitalistMood>('neutral');
-  const [message, setMessage] = useState('Give me a concept. NOW.');
-  const [isLoading, setIsLoading] = useState(false);
+// ─── Mood → image mapping ─────────────────────────────────────────────────────
 
-  // Mock Backend Call (Replace with actual fetch to your Node backend)
-  const evaluateIdea = async (idea: string): Promise<IdeaResponse> => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        // Mock LLM logic: simple randomizer for demonstration
-        const isProfitable = Math.random() > 0.5; 
-        resolve({
-          mood: isProfitable ? 'happy' : 'angry',
-          message: isProfitable 
-            ? 'Brilliant! Adding this to the Golden Fund.' 
-            : 'Unprofitable idea! Get out of my office!'
-        });
-      }, 1500);
-    });
-  };
+const MOOD_IMAGE: Record<CapitalistMood, string> = {
+  idle:      neutralImg,
+  disgusted: thinkingImg,
+  angry:     angryImg,
+  pleased:   happyImg,
+  ecstatic:  happyImg,
+};
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!inputText.trim() || isLoading) return;
+// ─── Idle messages ────────────────────────────────────────────────────────────
+
+const IDLE_MESSAGES: string[] = [
+  "You have 60 seconds. Impress me.",
+  "My time is money. YOURS TOO.",
+  "I'm waiting… and patience costs extra.",
+  "The market doesn't sleep. Neither should your brain.",
+  "Another day, another quota unfilled.",
+  "Mediocrity is free. Excellence costs effort. Pay up.",
+];
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+interface SpeechBubbleProps {
+  message: string;
+  mood:    CapitalistMood;
+  animKey: number;
+}
+
+function SpeechBubble({ message, mood, animKey }: SpeechBubbleProps) {
+  return (
+    <div key={animKey} className="bubble-container">
+      <div className={`speech-bubble bubble-pop mood-${mood}`}>
+        <p className="speech-text">{message}</p>
+        <div className="bubble-tail"      />
+        <div className="bubble-tail-fill" />
+      </div>
+    </div>
+  );
+}
+
+interface QuotaBarProps {
+  current: number;
+  target:  number;
+}
+
+function QuotaBar({ current, target }: QuotaBarProps) {
+  const pct  = Math.min(current / target, 1) * 100;
+  const done = current >= target;
+
+  return (
+    <div className="quota-bar-wrap">
+      <span
+        className="material-symbols-rounded quota-icon"
+        style={{ color: done ? "var(--green)" : "var(--gold)" }}
+      >
+        {done ? "task_alt" : "pending_actions"}
+      </span>
+
+      <div className="quota-track">
+        <div
+          className="quota-fill"
+          style={{
+            width:      `${pct}%`,
+            background: done ? "var(--green)" : "var(--gold)",
+          }}
+        />
+      </div>
+
+      <span className="quota-label">{current}/{target} ideas today</span>
+    </div>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
+export default function MainScreen() {
+  const [mood,       setMood]       = useState<CapitalistMood>("idle");
+  const [message,    setMessage]    = useState<string>(IDLE_MESSAGES[0]);
+  const [inputText,  setInputText]  = useState<string>("");
+  const [isLoading,  setIsLoading]  = useState<boolean>(false);
+  const [ideasToday, setIdeasToday] = useState<number>(0);
+  const [shake,      setShake]      = useState<boolean>(false);
+  const [bubbleKey,  setBubbleKey]  = useState<number>(0);
+
+  const inputRef     = useRef<HTMLInputElement>(null);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // ── Expose mood setter so the backend / WS layer can call it ───────────────
+  // Usage: window.setCapitalistMood("angry", "That idea is WORTHLESS!")
+  useEffect(() => {
+    (window as any).setCapitalistMood = (
+      newMood:    CapitalistMood,
+      newMessage?: string,
+    ) => {
+      setMood(newMood);
+      if (newMessage) {
+        setMessage(newMessage);
+        setBubbleKey(k => k + 1);
+      }
+      if (newMood === "angry" || newMood === "disgusted") {
+        triggerShake();
+      }
+    };
+
+    return () => {
+      delete (window as any).setCapitalistMood;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Idle message rotation ──────────────────────────────────────────────────
+  useEffect(() => {
+    const rotate = () => {
+      setMood(prev => {
+        if (prev === "idle") {
+          const idx = Math.floor(Math.random() * IDLE_MESSAGES.length);
+          setMessage(IDLE_MESSAGES[idx]);
+          setBubbleKey(k => k + 1);
+        }
+        return prev;
+      });
+      idleTimerRef.current = setTimeout(rotate, 6_000);
+    };
+
+    idleTimerRef.current = setTimeout(rotate, 6_000);
+    return () => clearTimeout(idleTimerRef.current);
+  }, []);
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const triggerShake = useCallback(() => {
+    setShake(true);
+    setTimeout(() => setShake(false), 600);
+  }, []);
+
+  const pushMessage = useCallback((text: string, newMood: CapitalistMood) => {
+    setMood(newMood);
+    setMessage(text);
+    setBubbleKey(k => k + 1);
+  }, []);
+
+  // ── Send idea to backend ───────────────────────────────────────────────────
+  const sendIdea = useCallback(async () => {
+    const idea = inputText.trim();
+    if (!idea || isLoading) return;
 
     setIsLoading(true);
-    setMood('thinking');
-    setMessage('Processing...');
-    
+    setInputText("");
+    pushMessage("Analysing your pathetic little idea…", "idle");
+
     try {
-      const response = await evaluateIdea(inputText);
-      setMood(response.mood);
-      setMessage(response.message);
-    } catch (error) {
-      setMood('angry');
-      setMessage('The network failed! Time is money!');
+      const res = await fetch("/api/evaluate-idea", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ idea }),
+      });
+
+      if (!res.ok) throw new Error(`Server responded ${res.status}`);
+
+      const data: EvalResponse = await res.json();
+
+      pushMessage(data.message, data.mood);
+      setIdeasToday(n => n + 1);
+
+      if (data.mood === "angry" || data.mood === "disgusted") {
+        triggerShake();
+      }
+    } catch (_err) {
+      // Fallback while backend isn't wired up yet
+      pushMessage("NETWORK FAILURE?! Even your infrastructure is a bad idea!", "angry");
+      triggerShake();
     } finally {
       setIsLoading(false);
-      setInputText('');
+    }
+  }, [inputText, isLoading, pushMessage, triggerShake]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendIdea();
     }
   };
 
-  // Image resolver function
-  const getCapitalistImage = (currentMood: CapitalistMood) => {
-    // Replace these with your actual local or hosted assets
-    const assets = {
-      neutral: 'https://placehold.co/600x400/303030/FFF?text=Capitalist:+Neutral',
-      thinking: 'https://placehold.co/600x400/505030/FFF?text=Capitalist:+Thinking',
-      angry: 'https://placehold.co/600x400/602020/FFF?text=Capitalist:+Angry',
-      happy: 'https://placehold.co/600x400/206020/FFF?text=Capitalist:+Happy',
-    };
-    return assets[currentMood];
-  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="game-container">
-      {/* Header */}
-      <header className="game-header">
-        <button className="icon-button" aria-label="Menu">
-          <span className="material-symbols-outlined">menu</span>
+    <div className={`app-shell${shake ? " shake" : ""}`}>
+
+      {/* ── Top bar ── */}
+      <header className="top-bar">
+        <button className="icon-btn" aria-label="Menu">
+          <span className="material-symbols-rounded">menu</span>
         </button>
-        <h1 className="title">Give me ideas</h1>
-        <div className="header-spacer"></div> {/* Balances flex layout */}
+
+        <h1 className="app-title">GIVE ME IDEAS</h1>
+
+        <button className="icon-btn" aria-label="Golden Fund">
+          <span className="material-symbols-rounded">stars</span>
+        </button>
       </header>
 
-      {/* Main Content */}
-      <main className="game-main">
-        <div className="message-container" key={message}>
-          <div className={`message-bubble ${mood}`}>
-            <h2>{message}</h2>
-          </div>
-        </div>
+      {/* ── Main content ── */}
+      <main className="main-content">
 
-        <div className="character-container">
-          <img 
-            src={getCapitalistImage(mood)} 
-            alt={`Capitalist looking ${mood}`} 
-            className={`character-image ${isLoading ? 'pulsate' : ''}`}
+        {/* Speech bubble */}
+        <SpeechBubble message={message} mood={mood} animKey={bubbleKey} />
+
+        {/* Capitalist character */}
+        <div className={`character-wrap mood-${mood}`}>
+          <div className="character-shadow" />
+          <img
+            className="character-img"
+            src={MOOD_IMAGE[mood]}
+            alt={`Capitalist – ${mood}`}
+            draggable={false}
           />
         </div>
+
+        {/* Daily quota */}
+        <QuotaBar current={ideasToday} target={2} />
+
       </main>
 
-      {/* Input Area */}
-      <form className="input-area" onSubmit={handleSubmit}>
-        <div className="input-wrapper">
+      {/* ── Input bar ── */}
+      <footer className="input-bar">
+        <div className={`input-wrap${isLoading ? " loading" : ""}`}>
           <input
-            type="text"
+            ref={inputRef}
             className="idea-input"
-            placeholder="GIVE ME IDEAS..."
+            type="text"
+            placeholder="PITCH YOUR IDEA…"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={e => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
             disabled={isLoading}
+            maxLength={500}
+            aria-label="Idea input"
           />
+          {isLoading && <div className="input-shimmer" />}
         </div>
-        <button type="button" className="action-button" disabled={isLoading} aria-label="Voice Input">
-          <span className="material-symbols-outlined">mic</span>
+
+        <button className="action-btn mic-btn" aria-label="Voice input">
+          <span className="material-symbols-rounded">mic</span>
         </button>
-        <button type="submit" className="action-button primary" disabled={isLoading || !inputText.trim()} aria-label="Submit Idea">
-          <span className="material-symbols-outlined">send</span>
+
+        <button
+          className={`action-btn send-btn${inputText.trim() ? " active" : ""}`}
+          onClick={sendIdea}
+          disabled={isLoading || !inputText.trim()}
+          aria-label="Send idea"
+        >
+          <span className="material-symbols-rounded">send</span>
         </button>
-      </form>
+      </footer>
+
     </div>
   );
-};
+}
