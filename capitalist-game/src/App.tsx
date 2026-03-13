@@ -1,7 +1,5 @@
-import { MainScreen } from './MainScreen'
+import MainScreen from './MainScreen';
 
-function App() {
-  return <MainScreen />
+export default function App() {
+  return <MainScreen />;
 }
-
-export default App
