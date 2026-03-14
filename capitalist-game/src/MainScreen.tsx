@@ -8,13 +8,15 @@ import happyImg    from "./assets/happy.png";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type CapitalistMood = "idle" | "angry" | "pleased" | "ecstatic" | "disgusted";
+// "thinking" is a transient UI-only state shown while waiting for the LLM
+export type CapitalistMood =
+  | "idle" | "thinking" | "angry" | "pleased" | "ecstatic" | "disgusted";
 
 export interface EvalResponse {
-  score:     number;        // 0–100
+  score:     number;
   message:   string;
-  mood:      CapitalistMood;
-  ideaId?:   string;        // backend assigns an id to allow starring
+  mood:      Exclude<CapitalistMood, "thinking">; // backend never sends "thinking"
+  ideaId?:   string;
   isGolden?: boolean;
 }
 
@@ -26,17 +28,16 @@ export interface IdeaRecord {
   createdAt: string;
 }
 
-// ─── Asset map (supports PNG and SVG — both work as <img src> values) ────────
+// ─── Asset map — works with PNG and SVG (both valid <img src> values) ─────────
 
 const MOOD_IMAGE: Record<CapitalistMood, string> = {
   idle:      neutralImg,
+  thinking:  thinkingImg,
   disgusted: thinkingImg,
   angry:     angryImg,
   pleased:   happyImg,
   ecstatic:  happyImg,
 };
-
-// ─── Idle messages ────────────────────────────────────────────────────────────
 
 const IDLE_MESSAGES: string[] = [
   "You have 60 seconds. Impress me.",
@@ -47,21 +48,93 @@ const IDLE_MESSAGES: string[] = [
   "Mediocrity is free. Excellence costs effort. Pay up.",
 ];
 
+const NETWORK_FAILURE_MESSAGE =
+  "NETWORK FAILURE?! Even your infrastructure is a bad idea!";
+
+const LLM_TIMEOUT_MS = 3_000;
+
+// ─── Thinking dots bubble text ────────────────────────────────────────────────
+
+function ThinkingDots() {
+  return (
+    <span className="thinking-dots" aria-label="Thinking">
+      <span>.</span><span>.</span><span>.</span>
+    </span>
+  );
+}
+
 // ─── Speech Bubble ────────────────────────────────────────────────────────────
 
 interface SpeechBubbleProps {
-  message: string;
-  mood:    CapitalistMood;
-  animKey: number;
+  message:    string;
+  mood:       CapitalistMood;
+  animKey:    number;
+  isThinking: boolean;
 }
 
-function SpeechBubble({ message, mood, animKey }: SpeechBubbleProps) {
+function SpeechBubble({ message, mood, animKey, isThinking }: SpeechBubbleProps) {
   return (
     <div key={animKey} className="bubble-container">
       <div className={`speech-bubble bubble-pop mood-${mood}`}>
-        <p className="speech-text">{message}</p>
+        <p className="speech-text">
+          {isThinking ? <ThinkingDots /> : message}
+        </p>
         <div className="bubble-tail"      />
         <div className="bubble-tail-fill" />
+      </div>
+    </div>
+  );
+}
+
+// ─── Crossfading character image ──────────────────────────────────────────────
+// Two absolutely-positioned slots alternate. When mood changes the new slot
+// fades in while the old one fades out simultaneously — a true crossfade.
+
+const CROSSFADE_MS = 350;
+
+function CharacterImage({ mood }: { mood: CapitalistMood }) {
+  // Each slot tracks which image it currently shows
+  const [slotA, setSlotA] = useState<CapitalistMood>(mood);
+  const [slotB, setSlotB] = useState<CapitalistMood>(mood);
+  // Which slot is currently "active" (opacity 1)
+  const [active, setActive] = useState<"A" | "B">("A");
+  const prevMood = useRef<CapitalistMood>(mood);
+
+  useEffect(() => {
+    if (mood === prevMood.current) return;
+    prevMood.current = mood;
+
+    // Load the new image into the inactive slot, then flip active
+    if (active === "A") {
+      setSlotB(mood);
+      // Small rAF delay so the browser paints slotB with the new src at opacity:0
+      // before we transition it to opacity:1
+      requestAnimationFrame(() => requestAnimationFrame(() => setActive("B")));
+    } else {
+      setSlotA(mood);
+      requestAnimationFrame(() => requestAnimationFrame(() => setActive("A")));
+    }
+  }, [mood]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="character-wrap">
+      {/* Slot A */}
+      <div className={`char-slot ${active === "A" ? "active" : "leaving"}`}>
+        <img
+          className="character-img"
+          src={MOOD_IMAGE[slotA]}
+          alt={`Capitalist – ${slotA}`}
+          draggable={false}
+        />
+      </div>
+      {/* Slot B */}
+      <div className={`char-slot ${active === "B" ? "active" : "leaving"}`}>
+        <img
+          className="character-img"
+          src={MOOD_IMAGE[slotB]}
+          alt={`Capitalist – ${slotB}`}
+          draggable={false}
+        />
       </div>
     </div>
   );
@@ -89,19 +162,13 @@ function QuotaBar({ current, target }: { current: number; target: number }) {
 
 // ─── Ideas Drawer ─────────────────────────────────────────────────────────────
 
-interface DrawerProps {
-  onClose: () => void;
-}
-
-function IdeasDrawer({ onClose }: DrawerProps) {
+function IdeasDrawer({ onClose }: { onClose: () => void }) {
   const [ideas,   setIdeas]   = useState<IdeaRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  // ── Fetch idea history from backend ────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-
     const load = async () => {
       try {
         const res = await fetch("/api/ideas");
@@ -114,16 +181,13 @@ function IdeasDrawer({ onClose }: DrawerProps) {
         if (!cancelled) setLoading(false);
       }
     };
-
     load();
     return () => { cancelled = true; };
   }, []);
 
   return (
     <>
-      {/* clicking outside closes the drawer */}
       <div className="drawer-overlay" onClick={onClose} aria-hidden="true" />
-
       <aside className="drawer" role="dialog" aria-label="Your ideas">
         <div className="drawer-header">
           <span className="drawer-title">YOUR IDEAS</span>
@@ -131,29 +195,24 @@ function IdeasDrawer({ onClose }: DrawerProps) {
             <span className="material-symbols-rounded">close</span>
           </button>
         </div>
-
         <div className="drawer-body">
           {loading && (
             <div className="drawer-loading">
-              <div className="spinner" />
-              <span>Counting your pennies…</span>
+              <div className="spinner" /><span>Counting your pennies…</span>
             </div>
           )}
-
           {error && !loading && (
             <div className="drawer-empty">
               <span className="material-symbols-rounded">wifi_off</span>
               <span>{error}</span>
             </div>
           )}
-
           {!loading && !error && ideas.length === 0 && (
             <div className="drawer-empty">
               <span className="material-symbols-rounded">lightbulb</span>
               <span>No ideas yet. Get to work.</span>
             </div>
           )}
-
           {!loading && !error && ideas.map(idea => (
             <div key={idea.id} className={`idea-item${idea.isGolden ? " golden" : ""}`}>
               {idea.isGolden && (
@@ -172,47 +231,45 @@ function IdeasDrawer({ onClose }: DrawerProps) {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function MainScreen() {
-  const [mood,          setMood]          = useState<CapitalistMood>("idle");
-  const [enterClass,    setEnterClass]    = useState<string>("enter-idle");
-  const [message,       setMessage]       = useState<string>(IDLE_MESSAGES[0]);
-  const [inputText,     setInputText]     = useState<string>("");
-  const [isLoading,     setIsLoading]     = useState<boolean>(false);
-  const [ideasToday,    setIdeasToday]    = useState<number>(0);
-  const [shake,         setShake]         = useState<boolean>(false);
-  const [bubbleKey,     setBubbleKey]     = useState<number>(0);
-  const [drawerOpen,    setDrawerOpen]    = useState<boolean>(false);
-  const [lastIdeaId,    setLastIdeaId]    = useState<string | null>(null);
-  const [isStarred,     setIsStarred]     = useState<boolean>(false);
+  const [mood,       setMood]       = useState<CapitalistMood>("idle");
+  const [message,    setMessage]    = useState<string>(IDLE_MESSAGES[0]);
+  const [inputText,  setInputText]  = useState<string>("");
+  const [isLoading,  setIsLoading]  = useState<boolean>(false);
+  const [ideasToday, setIdeasToday] = useState<number>(0);
+  const [shake,      setShake]      = useState<boolean>(false);
+  const [bubbleKey,  setBubbleKey]  = useState<number>(0);
+  const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
+  const [lastIdeaId, setLastIdeaId] = useState<string | null>(null);
+  const [isStarred,  setIsStarred]  = useState<boolean>(false);
 
-  const inputRef      = useRef<HTMLInputElement>(null);
-  const idleTimerRef  = useRef<ReturnType<typeof setTimeout>>();
-  const enterTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // ── Helper: change mood + play enter animation once ───────────────────────
-  const applyMood = useCallback((newMood: CapitalistMood) => {
-    clearTimeout(enterTimerRef.current);
-    setEnterClass(`enter-${newMood}`);
-    setMood(newMood);
-    // remove class after animation finishes so it can re-trigger next time
-    enterTimerRef.current = setTimeout(() => setEnterClass(""), 700);
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const triggerShake = useCallback(() => {
+    setShake(true);
+    setTimeout(() => setShake(false), 600);
   }, []);
 
-  // ── Expose global setter for backend/WS usage ─────────────────────────────
+  const pushMessage = useCallback((text: string, newMood: CapitalistMood) => {
+    setMood(newMood);
+    setMessage(text);
+    setBubbleKey(k => k + 1);
+  }, []);
+
+  // ── Global setter for backend / WebSocket ─────────────────────────────────
   // window.setCapitalistMood("angry", "That idea is garbage!")
   useEffect(() => {
     (window as any).setCapitalistMood = (
-      newMood:     CapitalistMood,
+      newMood:     Exclude<CapitalistMood, "thinking">,
       newMessage?: string,
     ) => {
-      applyMood(newMood);
-      if (newMessage) {
-        setMessage(newMessage);
-        setBubbleKey(k => k + 1);
-      }
+      setMood(newMood);
+      if (newMessage) { setMessage(newMessage); setBubbleKey(k => k + 1); }
       if (newMood === "angry" || newMood === "disgusted") triggerShake();
     };
     return () => { delete (window as any).setCapitalistMood; };
-  }, [applyMood]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [triggerShake]);
 
   // ── Idle message rotation ─────────────────────────────────────────────────
   useEffect(() => {
@@ -230,32 +287,19 @@ export default function MainScreen() {
     return () => clearTimeout(idleTimerRef.current);
   }, []);
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  const triggerShake = useCallback(() => {
-    setShake(true);
-    setTimeout(() => setShake(false), 600);
-  }, []);
-
-  const pushMessage = useCallback((text: string, newMood: CapitalistMood) => {
-    applyMood(newMood);
-    setMessage(text);
-    setBubbleKey(k => k + 1);
-  }, [applyMood]);
-
   // ── Star current idea ─────────────────────────────────────────────────────
   const starIdea = useCallback(async () => {
     if (!lastIdeaId || isStarred) return;
-    setIsStarred(true);         // optimistic
-
+    setIsStarred(true); // optimistic
     try {
       const res = await fetch(`/api/ideas/${lastIdeaId}/star`, { method: "POST" });
       if (!res.ok) throw new Error();
     } catch {
-      setIsStarred(false);      // rollback on failure
+      setIsStarred(false); // rollback
     }
   }, [lastIdeaId, isStarred]);
 
-  // ── Send idea ─────────────────────────────────────────────────────────────
+  // ── Send idea — thinking state + 3s hard timeout via Promise.race ───────────
   const sendIdea = useCallback(async () => {
     const idea = inputText.trim();
     if (!idea || isLoading) return;
@@ -264,14 +308,29 @@ export default function MainScreen() {
     setInputText("");
     setLastIdeaId(null);
     setIsStarred(false);
-    pushMessage("Analysing your pathetic little idea…", "idle");
+
+    // Show thinking immediately — dots in bubble, confused image
+    setMood("thinking");
+    setBubbleKey(k => k + 1);
+
+    // AbortController lets us cancel the in-flight fetch after timeout
+    const controller = new AbortController();
+
+    // This promise rejects after LLM_TIMEOUT_MS — races against the fetch
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("TIMEOUT")), LLM_TIMEOUT_MS)
+    );
 
     try {
-      const res = await fetch("/api/evaluate-idea", {
+      const fetchPromise = fetch("/api/evaluate-idea", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ idea }),
+        signal:  controller.signal,
       });
+
+      // Whichever settles first wins — timeout rejects → goes to catch
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!res.ok) throw new Error(`${res.status}`);
 
@@ -279,12 +338,14 @@ export default function MainScreen() {
 
       pushMessage(data.message, data.mood);
       setIdeasToday(n => n + 1);
-      if (data.ideaId)  setLastIdeaId(data.ideaId);
+      if (data.ideaId)   setLastIdeaId(data.ideaId);
       if (data.isGolden) setIsStarred(true);
-
       if (data.mood === "angry" || data.mood === "disgusted") triggerShake();
+
     } catch {
-      pushMessage("NETWORK FAILURE?! Even your infrastructure is a bad idea!", "angry");
+      // Covers: timeout, network error, non-2xx, abort
+      controller.abort();
+      pushMessage(NETWORK_FAILURE_MESSAGE, "angry");
       triggerShake();
     } finally {
       setIsLoading(false);
@@ -297,13 +358,14 @@ export default function MainScreen() {
 
   // ─────────────────────────────────────────────────────────────────────────
 
+  const isThinking = mood === "thinking";
+
   return (
     <div className={`app-shell${shake ? " shake" : ""}`}>
 
       {/* ── Top bar ── */}
       <header className="top-bar">
-        <button className="icon-btn" aria-label="Menu"
-                onClick={() => setDrawerOpen(true)}>
+        <button className="icon-btn" aria-label="Menu" onClick={() => setDrawerOpen(true)}>
           <span className="material-symbols-rounded">menu</span>
         </button>
 
@@ -325,18 +387,15 @@ export default function MainScreen() {
       {/* ── Main content ── */}
       <main className="main-content">
 
-        <SpeechBubble message={message} mood={mood} animKey={bubbleKey} />
+        <SpeechBubble
+          message={message}
+          mood={mood}
+          animKey={bubbleKey}
+          isThinking={isThinking}
+        />
 
-        <div className={`character-wrap mood-${mood}`}>
-          <div className="character-shadow" />
-          <img
-            key={mood}                            /* remount on mood change so CSS enter-anim fires */
-            className={`character-img ${enterClass}`}
-            src={MOOD_IMAGE[mood]}
-            alt={`Capitalist – ${mood}`}
-            draggable={false}
-          />
-        </div>
+        {/* Full-bleed crossfading character */}
+        <CharacterImage mood={mood} />
 
         <QuotaBar current={ideasToday} target={2} />
 
@@ -346,7 +405,6 @@ export default function MainScreen() {
       <footer className="input-bar">
         <div className={`input-wrap${isLoading ? " loading" : ""}`}>
           <input
-            ref={inputRef}
             className="idea-input"
             type="text"
             placeholder="PITCH YOUR IDEA…"
