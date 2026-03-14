@@ -146,7 +146,7 @@ function SpeechBubble({ message, mood, animKey, isThinking }: SpeechBubbleProps)
 
 // ─── Crossfading character image ──────────────────────────────────────────────
 
-const CROSSFADE_MS = 350;
+// const CROSSFADE_MS = 350;
 
 function CharacterImage({ mood }: { mood: CapitalistMood }) {
   const [slotA, setSlotA] = useState<CapitalistMood>(mood);
@@ -330,7 +330,7 @@ export default function MainScreen() {
   const [lastIdeaId, setLastIdeaId] = useState<string | null>(null);
   const [isStarred,  setIsStarred]  = useState<boolean>(false);
 
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>(1);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
