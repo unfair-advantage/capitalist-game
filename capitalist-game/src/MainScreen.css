@@ -15,25 +15,19 @@
   --md-secondary-container:   #CCE0EE;
   --md-on-secondary-container:#08161E;
 
-  --md-tertiary:              #3D6B8A;
-  --md-tertiary-container:    #BDD8EC;
-
   --md-error:                 #B3261E;
   --md-error-container:       #FFDAD6;
   --md-on-error-container:    #410002;
 
-  /* ice-blue surfaces */
   --md-surface:               #F2F7FC;
   --md-surface-variant:       #D8E6F1;
   --md-on-surface:            #151C22;
   --md-on-surface-variant:    #3B4B58;
 
-  --md-outline:               #6480920;
   --md-outline-variant:       #B2C8D9;
 
   --md-background:            #EAF1F8;
 
-  /* semantic */
   --accent:       #1B4F72;
   --accent-light: #C5DDEF;
   --accent-glow:  rgba(27, 79, 114, 0.18);
@@ -47,7 +41,6 @@
 
   --star:         #7A5C00;
   --star-active:  #F0AA00;
-  --star-glow:    rgba(240, 170, 0, 0.30);
 
   --radius-lg: 24px;
   --radius-md: 16px;
@@ -81,17 +74,16 @@ body {
   overflow: hidden;
 }
 
-/* cold gradient bloom at top */
 .app-shell::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse 80% 38% at 50% 0%, rgba(195, 220, 240, 0.45) 0%, transparent 65%);
+  background: radial-gradient(ellipse 80% 38% at 50% 0%, rgba(195,220,240,0.40) 0%, transparent 65%);
   pointer-events: none;
   z-index: 0;
 }
 
-/* ── Shake (one-shot, triggered by class) ────────────────────────────────── */
+/* ── App-shell shake (emotional feedback only, not character transitions) ─── */
 
 .app-shell.shake {
   animation: shake 0.52s cubic-bezier(.36,.07,.19,.97) both;
@@ -135,6 +127,7 @@ body {
   position: relative;
   z-index: 20;
   box-shadow: var(--elevation-1);
+  flex-shrink: 0;
 }
 
 .app-title {
@@ -175,12 +168,8 @@ body {
 .icon-btn:hover::after { opacity: 0.08; }
 .icon-btn:active { transform: scale(0.90); }
 
-.star-btn.starred {
-  color: var(--star-active);
-}
-.star-btn.starred .material-symbols-rounded {
-  font-variation-settings: 'FILL' 1;
-}
+.star-btn.starred { color: var(--star-active); }
+.star-btn.starred .material-symbols-rounded { font-variation-settings: 'FILL' 1; }
 
 /* ── Main content ────────────────────────────────────────────────────────── */
 
@@ -189,20 +178,23 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* vertically distribute: bubble — character — quota */
+  /* evenly space: bubble — character — quota */
   justify-content: space-evenly;
-  padding: 16px 20px 12px;
+  /* NO horizontal padding here — handled per-child so character can bleed */
+  padding: 16px 0 12px;
   position: relative;
   z-index: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* ── Speech bubble ───────────────────────────────────────────────────────── */
 
+/* bubble gets its own horizontal inset */
 .bubble-container {
-  width: 100%;
-  max-width: 340px;
+  width: calc(100% - 40px);
   align-self: flex-start;
+  margin-left: 20px;
 }
 
 .bubble-pop {
@@ -223,6 +215,7 @@ body {
 }
 
 .speech-bubble.mood-idle,
+.speech-bubble.mood-thinking,
 .speech-bubble.mood-disgusted {
   background: var(--md-surface-variant);
   border: 1.5px solid var(--md-outline-variant);
@@ -245,6 +238,7 @@ body {
 }
 
 .speech-bubble.mood-idle .speech-text,
+.speech-bubble.mood-thinking .speech-text,
 .speech-bubble.mood-disgusted .speech-text { color: var(--md-on-surface); }
 .speech-bubble.mood-angry .speech-text     { color: var(--md-on-error-container); }
 .speech-bubble.mood-pleased .speech-text,
@@ -271,8 +265,10 @@ body {
 }
 
 .speech-bubble.mood-idle .bubble-tail,
+.speech-bubble.mood-thinking .bubble-tail,
 .speech-bubble.mood-disgusted .bubble-tail   { border-top-color: var(--md-outline-variant); }
 .speech-bubble.mood-idle .bubble-tail-fill,
+.speech-bubble.mood-thinking .bubble-tail-fill,
 .speech-bubble.mood-disgusted .bubble-tail-fill { border-top-color: var(--md-surface-variant); }
 
 .speech-bubble.mood-angry .bubble-tail      { border-top-color: #FFBAB1; }
@@ -283,108 +279,78 @@ body {
 .speech-bubble.mood-pleased .bubble-tail-fill,
 .speech-bubble.mood-ecstatic .bubble-tail-fill { border-top-color: var(--green-light); }
 
-/* ── Character ───────────────────────────────────────────────────────────── */
+/* thinking dots animation */
+.thinking-dots span {
+  animation: dotBlink 1.2s ease-in-out infinite;
+  opacity: 0;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotBlink {
+  0%, 80%, 100% { opacity: 0; }
+  40%            { opacity: 1; }
+}
+
+/* ── Character — full bleed, crossfade only ──────────────────────────────── */
 
 .character-wrap {
+  /* full app width — no side constraints */
+  width: 100%;
   position: relative;
+  /* fill available vertical space between bubble and quota */
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  max-width: 320px;
 }
 
-.character-shadow {
+/*
+ * Two image slots sit on top of each other.
+ * The "active" slot fades to opacity:1, the "leaving" slot to opacity:0.
+ * CSS transition handles the crossfade — no JS animation frames needed.
+ */
+.char-slot {
   position: absolute;
-  bottom: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60%;
-  height: 24px;
-  background: radial-gradient(ellipse, rgba(0,0,0,0.14) 0%, transparent 70%);
-  border-radius: 50%;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.35s ease;
   pointer-events: none;
-  transition: background 0.6s ease;
 }
-.mood-angry  .character-shadow { background: radial-gradient(ellipse, rgba(179,38,30,0.20) 0%, transparent 70%); }
-.mood-pleased .character-shadow,
-.mood-ecstatic .character-shadow { background: radial-gradient(ellipse, rgba(26,107,58,0.16) 0%, transparent 70%); }
 
-/* base image styles – works for both PNG and SVG */
+.char-slot.active   { opacity: 1;  pointer-events: auto; }
+.char-slot.leaving  { opacity: 0; }
+
 .character-img {
-  position: relative;
-  z-index: 2;
+  /* bleed to both edges — no horizontal padding, no max-width cap */
   width: 100%;
-  max-width: 280px;
-  height: auto;
-  max-height: 40vh;
+  height: 100%;
   object-fit: contain;
-  /* SVG: allow scaling without pixelation */
+  /* SVGs scale without pixelation */
   image-rendering: auto;
-  transition: filter 0.5s ease;
-  filter: drop-shadow(0 8px 18px rgba(0,0,0,0.12));
+  /* zero shadow — blend with background */
+  filter: none;
+  display: block;
   user-select: none;
   -webkit-user-drag: none;
-  display: block;
 }
 
-/* ── Mood-enter animations (one-shot, play once on class change) ─────────── */
-
-.character-img.enter-idle {
-  animation: enterIdle 0.5s ease both;
-}
-.character-img.enter-angry {
-  animation: enterAngry 0.45s ease both;
-  filter: drop-shadow(0 0 16px rgba(179,38,30,0.50));
-}
-.character-img.enter-pleased {
-  animation: enterPleased 0.55s cubic-bezier(0.34,1.56,0.64,1) both;
-}
-.character-img.enter-ecstatic {
-  animation: enterEcstatic 0.6s cubic-bezier(0.34,1.56,0.64,1) both;
-  filter: drop-shadow(0 0 20px rgba(240,170,0,0.55));
-}
-.character-img.enter-disgusted {
-  animation: enterDisgusted 0.5s ease both;
-}
-
-@keyframes enterIdle {
-  0%   { transform: scale(0.94) translateY(6px); opacity: 0.6; }
-  100% { transform: scale(1)    translateY(0);   opacity: 1; }
-}
-@keyframes enterAngry {
-  0%   { transform: scale(1.06) rotate(-2deg); }
-  40%  { transform: scale(0.97) rotate(2deg); }
-  70%  { transform: scale(1.02) rotate(-1deg); }
-  100% { transform: scale(1)    rotate(0deg); }
-}
-@keyframes enterPleased {
-  0%   { transform: scale(0.90) translateY(10px); opacity: 0.7; }
-  100% { transform: scale(1)    translateY(0);    opacity: 1; }
-}
-@keyframes enterEcstatic {
-  0%   { transform: scale(0.85) rotate(-3deg); opacity: 0.5; }
-  60%  { transform: scale(1.06) rotate(2deg); }
-  100% { transform: scale(1)    rotate(0deg); opacity: 1; }
-}
-@keyframes enterDisgusted {
-  0%   { transform: translateX(-8px) rotate(-2deg); opacity: 0.7; }
-  100% { transform: translateX(0)    rotate(0deg);  opacity: 1; }
-}
-
-/* ── Quota bar ───────────────────────────────────────────────────────────── */
+/* ── Quota bar — gets its own horizontal inset ───────────────────────────── */
 
 .quota-bar-wrap {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  max-width: 340px;
+  width: calc(100% - 40px);
   padding: 10px 14px;
   background: var(--md-surface-variant);
   border: 1px solid var(--md-outline-variant);
   border-radius: var(--radius-md);
   box-shadow: var(--elevation-1);
+  flex-shrink: 0;
 }
 
 .quota-icon {
@@ -428,6 +394,7 @@ body {
   position: relative;
   z-index: 20;
   box-shadow: 0 -2px 8px rgba(0,0,0,0.05);
+  flex-shrink: 0;
 }
 
 .input-wrap {
@@ -459,13 +426,10 @@ body {
   caret-color: var(--md-primary);
 }
 
-.idea-input::placeholder {
-  color: var(--md-on-surface-variant);
-  font-weight: 400;
-}
-
+.idea-input::placeholder { color: var(--md-on-surface-variant); font-weight: 400; }
 .idea-input:disabled { opacity: 0.55; }
 
+/* shimmer shown during LLM wait inside the input field */
 .input-shimmer {
   position: absolute;
   inset: 0;
@@ -540,12 +504,12 @@ body {
   transform: scale(1.06);
 }
 
-/* ── Drawer overlay ──────────────────────────────────────────────────────── */
+/* ── Ideas drawer ────────────────────────────────────────────────────────── */
 
 .drawer-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(15, 25, 35, 0.40);
+  background: rgba(15,25,35,0.40);
   z-index: 30;
   animation: fadeIn 0.22s ease both;
   backdrop-filter: blur(2px);
@@ -558,9 +522,7 @@ body {
 
 .drawer {
   position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
+  top: 0; left: 0; bottom: 0;
   width: min(320px, 88%);
   background: var(--md-surface);
   border-right: 1px solid var(--md-outline-variant);
@@ -598,7 +560,6 @@ body {
   padding: 12px 10px;
 }
 
-/* scrollbar */
 .drawer-body::-webkit-scrollbar { width: 4px; }
 .drawer-body::-webkit-scrollbar-track { background: transparent; }
 .drawer-body::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 2px; }
@@ -647,7 +608,6 @@ body {
   background: var(--md-surface-variant);
   border: 1px solid transparent;
   transition: border-color 0.18s, background 0.18s;
-  cursor: default;
 }
 
 .idea-item:hover {
