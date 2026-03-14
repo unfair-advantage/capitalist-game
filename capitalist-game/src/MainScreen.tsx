@@ -15,7 +15,7 @@ export type CapitalistMood =
 export interface EvalResponse {
   score:     number;
   message:   string;
-  mood:      Exclude<CapitalistMood, "thinking">; // backend never sends "thinking"
+  mood:      Exclude<CapitalistMood, "thinking">;
   ideaId?:   string;
   isGolden?: boolean;
 }
@@ -28,14 +28,37 @@ export interface IdeaRecord {
   createdAt: string;
 }
 
-// ─── Asset map — works with PNG and SVG (both valid <img src> values) ─────────
 interface GlobalIdea {
   title:       string;
   description: string;
   examples:    string[];
 }
 
-// ─── Asset map ────────────────────────────────────────────────────────────────
+interface BackendIteration {
+  version:     number;
+  title:       string;
+  description: string;
+  plan:        string[];
+  ranking: {
+    originality:     number;
+    difficulty:      number;
+    marketPotential: number;
+    scalability:     number;
+  };
+  createdAt: string;
+}
+
+interface BackendIdea {
+  id:         string;
+  userId:     string;
+  iterations: BackendIteration[];
+  createdAt:  string;
+  updatedAt:  string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const API = "https://luhi-panove-1.onrender.com";
 
 const MOOD_IMAGE: Record<CapitalistMood, string> = {
   idle:      neutralImg,
@@ -58,7 +81,35 @@ const IDLE_MESSAGES: string[] = [
 const NETWORK_FAILURE_MESSAGE =
   "NETWORK FAILURE?! Even your infrastructure is a bad idea!";
 
-const LLM_TIMEOUT_MS = 3_000;
+const LLM_TIMEOUT_MS = 30_000;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function avgScore(ranking: BackendIteration["ranking"]): number {
+  return Math.round(
+    (ranking.originality + ranking.difficulty + ranking.marketPotential + ranking.scalability) / 4
+  );
+}
+
+function toIdeaRecord(idea: BackendIdea): IdeaRecord {
+  const latest = idea.iterations[idea.iterations.length - 1];
+  const score  = latest?.ranking ? avgScore(latest.ranking) : 0;
+  return {
+    id:        idea.id,
+    text:      latest?.title ?? "Untitled",
+    score,
+    isGolden:  score >= 80,
+    createdAt: idea.createdAt,
+  };
+}
+
+function scoreToMood(score: number): Exclude<CapitalistMood, "thinking"> {
+  if (score >= 80) return "ecstatic";
+  if (score >= 60) return "pleased";
+  if (score >= 40) return "idle";
+  if (score >= 20) return "angry";
+  return "disgusted";
+}
 
 // ─── Thinking dots bubble text ────────────────────────────────────────────────
 
@@ -94,16 +145,12 @@ function SpeechBubble({ message, mood, animKey, isThinking }: SpeechBubbleProps)
 }
 
 // ─── Crossfading character image ──────────────────────────────────────────────
-// Two absolutely-positioned slots alternate. When mood changes the new slot
-// fades in while the old one fades out simultaneously — a true crossfade.
 
 const CROSSFADE_MS = 350;
 
 function CharacterImage({ mood }: { mood: CapitalistMood }) {
-  // Each slot tracks which image it currently shows
   const [slotA, setSlotA] = useState<CapitalistMood>(mood);
   const [slotB, setSlotB] = useState<CapitalistMood>(mood);
-  // Which slot is currently "active" (opacity 1)
   const [active, setActive] = useState<"A" | "B">("A");
   const prevMood = useRef<CapitalistMood>(mood);
 
@@ -111,11 +158,8 @@ function CharacterImage({ mood }: { mood: CapitalistMood }) {
     if (mood === prevMood.current) return;
     prevMood.current = mood;
 
-    // Load the new image into the inactive slot, then flip active
     if (active === "A") {
       setSlotB(mood);
-      // Small rAF delay so the browser paints slotB with the new src at opacity:0
-      // before we transition it to opacity:1
       requestAnimationFrame(() => requestAnimationFrame(() => setActive("B")));
     } else {
       setSlotA(mood);
@@ -125,7 +169,6 @@ function CharacterImage({ mood }: { mood: CapitalistMood }) {
 
   return (
     <div className="character-wrap">
-      {/* Slot A */}
       <div className={`char-slot ${active === "A" ? "active" : "leaving"}`}>
         <img
           className="character-img"
@@ -134,7 +177,6 @@ function CharacterImage({ mood }: { mood: CapitalistMood }) {
           draggable={false}
         />
       </div>
-      {/* Slot B */}
       <div className={`char-slot ${active === "B" ? "active" : "leaving"}`}>
         <img
           className="character-img"
@@ -174,7 +216,7 @@ function GlobalIdeaBanner() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    fetch("https://luhi-panove-1.onrender.com/global-idea")
+    fetch(`${API}/global-idea`)
       .then(r => r.ok ? r.json() : Promise.reject())
       .then((data: GlobalIdea) => setIdea(data))
       .catch(() => {});
@@ -184,14 +226,12 @@ function GlobalIdeaBanner() {
 
   return (
     <div className={`gib-wrap${open ? " gib-open" : ""}`}>
-
       <button className="gib-pill" onClick={() => setOpen(o => !o)} aria-expanded={open}>
         <span className="material-symbols-rounded gib-icon">lightbulb</span>
         <span className="gib-label">IDEA OF THE DAY</span>
         <span className="gib-title-short">{idea.title}</span>
         <span className="material-symbols-rounded gib-chevron">keyboard_arrow_down</span>
       </button>
-
       <div className="gib-dropdown" aria-hidden={!open}>
         <div className="gib-dropdown-inner">
           <p className="gib-desc">{idea.description}</p>
@@ -204,7 +244,6 @@ function GlobalIdeaBanner() {
           )}
         </div>
       </div>
-
     </div>
   );
 }
@@ -220,10 +259,10 @@ function IdeasDrawer({ onClose }: { onClose: () => void }) {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch("/api/ideas");
+        const res = await fetch(`${API}/ideas`);
         if (!res.ok) throw new Error(`${res.status}`);
-        const data: IdeaRecord[] = await res.json();
-        if (!cancelled) setIdeas(data);
+        const raw: BackendIdea[] = await res.json();
+        if (!cancelled) setIdeas(raw.map(toIdeaRecord));
       } catch {
         if (!cancelled) setError("Couldn't load ideas. The market is volatile.");
       } finally {
@@ -307,7 +346,6 @@ export default function MainScreen() {
   }, []);
 
   // ── Global setter for backend / WebSocket ─────────────────────────────────
-  // window.setCapitalistMood("angry", "That idea is garbage!")
   useEffect(() => {
     (window as any).setCapitalistMood = (
       newMood:     Exclude<CapitalistMood, "thinking">,
@@ -338,16 +376,10 @@ export default function MainScreen() {
   // ── Star current idea ─────────────────────────────────────────────────────
   const starIdea = useCallback(async () => {
     if (!lastIdeaId || isStarred) return;
-    setIsStarred(true); // optimistic
-    try {
-      const res = await fetch(`/api/ideas/${lastIdeaId}/star`, { method: "POST" });
-      if (!res.ok) throw new Error();
-    } catch {
-      setIsStarred(false); // rollback
-    }
+    setIsStarred(true); // локально, ендпоінту /star немає
   }, [lastIdeaId, isStarred]);
 
-  // ── Send idea — thinking state + 3s hard timeout via Promise.race ───────────
+  // ── Send idea ─────────────────────────────────────────────────────────────
   const sendIdea = useCallback(async () => {
     const idea = inputText.trim();
     if (!idea || isLoading) return;
@@ -357,41 +389,55 @@ export default function MainScreen() {
     setLastIdeaId(null);
     setIsStarred(false);
 
-    // Show thinking immediately — dots in bubble, confused image
+    // Показуємо thinking одразу
     setMood("thinking");
     setBubbleKey(k => k + 1);
 
-    // AbortController lets us cancel the in-flight fetch after timeout
     const controller = new AbortController();
-
-    // This promise rejects after LLM_TIMEOUT_MS — races against the fetch
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("TIMEOUT")), LLM_TIMEOUT_MS)
     );
 
     try {
-      const fetchPromise = fetch("/api/evaluate-idea", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ idea }),
-        signal:  controller.signal,
-      });
+      // 1. Створити ідею
+      const createRes = await Promise.race([
+        fetch(`${API}/ideas`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ title: idea, description: idea }),
+          signal:  controller.signal,
+        }),
+        timeoutPromise,
+      ]);
+      if (!createRes.ok) throw new Error(`create: ${createRes.status}`);
+      const created: BackendIdea = await createRes.json();
 
-      // Whichever settles first wins — timeout rejects → goes to catch
-      const res = await Promise.race([fetchPromise, timeoutPromise]);
+      // 2. Покращити через AI
+      const improveRes = await Promise.race([
+        fetch(`${API}/ideas/${created.id}/improve`, {
+          method: "POST",
+          signal: controller.signal,
+        }),
+        timeoutPromise,
+      ]);
+      if (!improveRes.ok) throw new Error(`improve: ${improveRes.status}`);
+      const improved: BackendIdea = await improveRes.json();
 
-      if (!res.ok) throw new Error(`${res.status}`);
+      // 3. Формуємо відповідь
+      const latest = improved.iterations[improved.iterations.length - 1];
+      const score  = latest?.ranking ? avgScore(latest.ranking) : 50;
+      const mood   = scoreToMood(score);
+      const msg    = latest?.description
+        ? `${latest.title} — ${latest.description}`
+        : "I've seen worse. Barely.";
 
-      const data: EvalResponse = await res.json();
-
-      pushMessage(data.message, data.mood);
+      pushMessage(msg, mood);
       setIdeasToday(n => n + 1);
-      if (data.ideaId)   setLastIdeaId(data.ideaId);
-      if (data.isGolden) setIsStarred(true);
-      if (data.mood === "angry" || data.mood === "disgusted") triggerShake();
+      setLastIdeaId(improved.id);
+      if (score >= 80) setIsStarred(true);
+      if (mood === "angry" || mood === "disgusted") triggerShake();
 
     } catch {
-      // Covers: timeout, network error, non-2xx, abort
       controller.abort();
       pushMessage(NETWORK_FAILURE_MESSAGE, "angry");
       triggerShake();
@@ -403,8 +449,6 @@ export default function MainScreen() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendIdea(); }
   };
-
-  // ─────────────────────────────────────────────────────────────────────────
 
   const isThinking = mood === "thinking";
 
@@ -445,7 +489,6 @@ export default function MainScreen() {
           isThinking={isThinking}
         />
 
-        {/* Full-bleed crossfading character */}
         <CharacterImage mood={mood} />
 
         <QuotaBar current={ideasToday} target={2} />
