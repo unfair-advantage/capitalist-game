@@ -422,7 +422,7 @@ export default function MainScreen() {
   const [lastIdeaId, setLastIdeaId] = useState<string | null>(null);
   const [isStarred,  setIsStarred]  = useState<boolean>(false);
 
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>(1);
+  // const idleTimerRef = useRef<ReturnType<typeof setTimeout>>(1);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -450,20 +450,20 @@ export default function MainScreen() {
     return () => { delete (window as any).setCapitalistMood; };
   }, [triggerShake]);
 
-  useEffect(() => {
-    const rotate = () => {
-      setMood(prev => {
-        if (prev === "idle") {
-          setMessage(IDLE_MESSAGES[Math.floor(Math.random() * IDLE_MESSAGES.length)]);
-          setBubbleKey(k => k + 1);
-        }
-        return prev;
-      });
-      idleTimerRef.current = setTimeout(rotate, 6_000);
-    };
-    idleTimerRef.current = setTimeout(rotate, 6_000);
-    return () => clearTimeout(idleTimerRef.current);
-  }, []);
+  // useEffect(() => {
+  //   const rotate = () => {
+  //     setMood(prev => {
+  //       if (prev === "idle") {
+  //         setMessage(IDLE_MESSAGES[Math.floor(Math.random() * IDLE_MESSAGES.length)]);
+  //         setBubbleKey(k => k + 1);
+  //       }
+  //       return prev;
+  //     });
+  //     idleTimerRef.current = setTimeout(rotate, 6_000);
+  //   };
+  //   idleTimerRef.current = setTimeout(rotate, 6_000);
+  //   return () => clearTimeout(idleTimerRef.current);
+  // }, []);
 
   // ── Star current idea ─────────────────────────────────────────────────────
   const starIdea = useCallback(async () => {
