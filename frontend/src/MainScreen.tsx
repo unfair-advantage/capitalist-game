@@ -10,12 +10,27 @@ import happyImg    from "./assets/happy.png";
 
 export type CapitalistMood = "idle" | "angry" | "pleased" | "ecstatic" | "disgusted";
 
-export interface EvalResponse {
-  score:     number;        // 0–100
-  message:   string;
-  mood:      CapitalistMood;
-  ideaId?:   string;        // backend assigns an id to allow starring
-  isGolden?: boolean;
+// Структура відповіді бекенду для ідеї
+interface BackendIteration {
+  version: number;
+  title: string;
+  description: string;
+  plan: string[];
+  ranking: {
+    originality: number;
+    difficulty: number;
+    marketPotential: number;
+    scalability: number;
+  };
+  createdAt: string;
+}
+
+interface BackendIdea {
+  id: string;
+  userId: string;
+  iterations: BackendIteration[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface IdeaRecord {
@@ -26,7 +41,41 @@ export interface IdeaRecord {
   createdAt: string;
 }
 
-// ─── Asset map (supports PNG and SVG — both work as <img src> values) ────────
+interface GlobalIdea {
+  title:       string;
+  description: string;
+  examples:    string[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function calcAvgScore(ranking: BackendIteration["ranking"]): number {
+  return Math.round(
+    (ranking.originality + ranking.difficulty + ranking.marketPotential + ranking.scalability) / 4
+  );
+}
+
+function scoreToMood(score: number): CapitalistMood {
+  if (score >= 80) return "ecstatic";
+  if (score >= 60) return "pleased";
+  if (score >= 40) return "idle";
+  if (score >= 20) return "angry";
+  return "disgusted";
+}
+
+function ideaToRecord(idea: BackendIdea): IdeaRecord {
+  const latest = idea.iterations[idea.iterations.length - 1];
+  const score  = latest?.ranking ? calcAvgScore(latest.ranking) : 0;
+  return {
+    id:        idea.id,
+    text:      latest?.title ?? "Untitled",
+    score,
+    isGolden:  score >= 80,
+    createdAt: idea.createdAt,
+  };
+}
+
+// ─── Asset map ────────────────────────────────────────────────────────────────
 
 const MOOD_IMAGE: Record<CapitalistMood, string> = {
   idle:      neutralImg,
@@ -87,6 +136,51 @@ function QuotaBar({ current, target }: { current: number; target: number }) {
   );
 }
 
+// ─── Global Idea Banner ───────────────────────────────────────────────────────
+
+function GlobalIdeaBanner() {
+  const [idea, setIdea] = useState<GlobalIdea | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    fetch("https://luhi-panove-1.onrender.com/global-idea")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((data: GlobalIdea) => setIdea(data))
+      .catch(() => {});
+  }, []);
+
+  if (!idea) return null;
+
+  return (
+    // position: absolute — не зсуває layout нижче
+    <div className={`gib-wrap${open ? " gib-open" : ""}`}>
+
+      {/* ── Завжди видимий рядок-пілюля ── */}
+      <button className="gib-pill" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        <span className="material-symbols-rounded gib-icon">lightbulb</span>
+        <span className="gib-label">IDEA OF THE DAY</span>
+        <span className="gib-title-short">{idea.title}</span>
+        <span className="material-symbols-rounded gib-chevron">keyboard_arrow_down</span>
+      </button>
+
+      {/* ── Slide-down дропдаун ── */}
+      <div className="gib-dropdown" aria-hidden={!open}>
+        <div className="gib-dropdown-inner">
+          <p className="gib-desc">{idea.description}</p>
+          {idea.examples.length > 0 && (
+            <ul className="gib-examples">
+              {idea.examples.map((ex, i) => (
+                <li key={i}>{ex}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 // ─── Ideas Drawer ─────────────────────────────────────────────────────────────
 
 interface DrawerProps {
@@ -98,7 +192,6 @@ function IdeasDrawer({ onClose }: DrawerProps) {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  // ── Fetch idea history from backend ────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -106,7 +199,9 @@ function IdeasDrawer({ onClose }: DrawerProps) {
       try {
         const res = await fetch("/api/ideas");
         if (!res.ok) throw new Error(`${res.status}`);
-        const data: IdeaRecord[] = await res.json();
+        const raw: BackendIdea[] = await res.json();
+        // Конвертуємо BackendIdea[] → IdeaRecord[]
+        const data = raw.map(ideaToRecord);
         if (!cancelled) setIdeas(data);
       } catch {
         if (!cancelled) setError("Couldn't load ideas. The market is volatile.");
@@ -121,7 +216,6 @@ function IdeasDrawer({ onClose }: DrawerProps) {
 
   return (
     <>
-      {/* clicking outside closes the drawer */}
       <div className="drawer-overlay" onClick={onClose} aria-hidden="true" />
 
       <aside className="drawer" role="dialog" aria-label="Your ideas">
@@ -193,12 +287,10 @@ export default function MainScreen() {
     clearTimeout(enterTimerRef.current);
     setEnterClass(`enter-${newMood}`);
     setMood(newMood);
-    // remove class after animation finishes so it can re-trigger next time
     enterTimerRef.current = setTimeout(() => setEnterClass(""), 700);
   }, []);
 
   // ── Expose global setter for backend/WS usage ─────────────────────────────
-  // window.setCapitalistMood("angry", "That idea is garbage!")
   useEffect(() => {
     (window as any).setCapitalistMood = (
       newMood:     CapitalistMood,
@@ -243,16 +335,10 @@ export default function MainScreen() {
   }, [applyMood]);
 
   // ── Star current idea ─────────────────────────────────────────────────────
+  // Бекенд не має ендпоінту /star — зберігаємо лише локально
   const starIdea = useCallback(async () => {
     if (!lastIdeaId || isStarred) return;
-    setIsStarred(true);         // optimistic
-
-    try {
-      const res = await fetch(`/api/ideas/${lastIdeaId}/star`, { method: "POST" });
-      if (!res.ok) throw new Error();
-    } catch {
-      setIsStarred(false);      // rollback on failure
-    }
+    setIsStarred(true);
   }, [lastIdeaId, isStarred]);
 
   // ── Send idea ─────────────────────────────────────────────────────────────
@@ -267,22 +353,38 @@ export default function MainScreen() {
     pushMessage("Analysing your pathetic little idea…", "idle");
 
     try {
-      const res = await fetch("/api/evaluate-idea", {
+      // 1. Створити ідею (POST /ideas)
+      const createRes = await fetch("/api/ideas", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ idea }),
+        body:    JSON.stringify({ title: idea, description: idea }),
       });
+      if (!createRes.ok) throw new Error(`create: ${createRes.status}`);
+      const created: BackendIdea = await createRes.json();
+      const ideaId = created.id;
 
-      if (!res.ok) throw new Error(`${res.status}`);
+      // 2. Покращити через Gemini AI (POST /ideas/:id/improve)
+      const improveRes = await fetch(`/api/ideas/${ideaId}/improve`, {
+        method: "POST",
+      });
+      if (!improveRes.ok) throw new Error(`improve: ${improveRes.status}`);
+      const improved: BackendIdea = await improveRes.json();
 
-      const data: EvalResponse = await res.json();
+      // 3. Читаємо останню ітерацію і рахуємо score
+      const latest = improved.iterations[improved.iterations.length - 1];
+      const score  = latest?.ranking ? calcAvgScore(latest.ranking) : 50;
+      const mood   = scoreToMood(score);
 
-      pushMessage(data.message, data.mood);
+      const displayMessage = latest?.description
+        ? `${latest.title} — ${latest.description}`
+        : "I've seen worse. Barely.";
+
+      pushMessage(displayMessage, mood);
       setIdeasToday(n => n + 1);
-      if (data.ideaId)  setLastIdeaId(data.ideaId);
-      if (data.isGolden) setIsStarred(true);
+      setLastIdeaId(ideaId);
+      if (score >= 80) setIsStarred(true);
 
-      if (data.mood === "angry" || data.mood === "disgusted") triggerShake();
+      if (mood === "angry" || mood === "disgusted") triggerShake();
     } catch {
       pushMessage("NETWORK FAILURE?! Even your infrastructure is a bad idea!", "angry");
       triggerShake();
@@ -322,6 +424,9 @@ export default function MainScreen() {
         </button>
       </header>
 
+      {/* ── Global Idea Banner (абсолютно позиціонований, не зсуває layout) ── */}
+      <GlobalIdeaBanner />
+
       {/* ── Main content ── */}
       <main className="main-content">
 
@@ -330,7 +435,7 @@ export default function MainScreen() {
         <div className={`character-wrap mood-${mood}`}>
           <div className="character-shadow" />
           <img
-            key={mood}                            /* remount on mood change so CSS enter-anim fires */
+            key={mood}
             className={`character-img ${enterClass}`}
             src={MOOD_IMAGE[mood]}
             alt={`Capitalist – ${mood}`}

@@ -683,4 +683,163 @@ body {
   flex-shrink: 0;
   margin-top: 1px;
   font-variation-settings: 'FILL' 1;
+}                               */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLOBAL IDEA BANNER  —  додати в кінець MainScreen.css
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Обгортка: абсолютно позиціонована під top-bar, не зсуває layout ───── */
+.gib-wrap {
+  position: absolute;
+  top: 57px;          /* висота .top-bar */
+  left: 0;
+  right: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+
+/* ── Пілюля: завжди видима ──────────────────────────────────────────────── */
+.gib-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 16px;
+  background: linear-gradient(
+    135deg,
+    rgba(240, 170, 0, 0.18) 0%,
+    rgba(240, 170, 0, 0.08) 100%
+  );
+  border: none;
+  border-bottom: 1px solid rgba(240, 170, 0, 0.30);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s;
+  animation: gibSlideIn 0.45s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+.gib-pill:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(240, 170, 0, 0.26) 0%,
+    rgba(240, 170, 0, 0.14) 100%
+  );
+}
+
+@keyframes gibSlideIn {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+/* ── Іконка ─────────────────────────────────────────────────────────────── */
+.gib-icon {
+  font-size: 16px !important;
+  color: var(--star-active);
+  flex-shrink: 0;
+  font-variation-settings: 'FILL' 1;
+  animation: gibPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes gibPulse {
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.15); }
+}
+
+/* ── Лейбл "IDEA OF THE DAY" ────────────────────────────────────────────── */
+.gib-label {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--star);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Назва ідеї (скорочена, з ellipsis) ─────────────────────────────────── */
+.gib-title-short {
+  flex: 1;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--md-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+/* ── Шеврон: повертається при відкритті ─────────────────────────────────── */
+.gib-chevron {
+  font-size: 18px !important;
+  color: var(--star);
+  flex-shrink: 0;
+  transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.gib-open .gib-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Дропдаун: slide-down через max-height ──────────────────────────────── */
+.gib-dropdown {
+  pointer-events: none;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(250, 245, 225, 0.97);
+  border-bottom: 1px solid rgba(240, 170, 0, 0.25);
+  backdrop-filter: blur(12px);
+}
+
+.gib-open .gib-dropdown {
+  pointer-events: auto;
+  max-height: 260px;
+}
+
+/* ── Внутрішній падінг ── */
+.gib-dropdown-inner {
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+
+/* ── Опис ────────────────────────────────────────────────────────────────── */
+.gib-desc {
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--md-on-surface);
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+/* ── Список прикладів ───────────────────────────────────────────────────── */
+.gib-examples {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gib-examples li {
+  font-size: 0.79rem;
+  color: var(--md-on-surface-variant);
+  line-height: 1.4;
+  padding-left: 16px;
+  position: relative;
+}
+
+.gib-examples li::before {
+  content: '›';
+  position: absolute;
+  left: 0;
+  color: var(--star-active);
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.2;
 }
