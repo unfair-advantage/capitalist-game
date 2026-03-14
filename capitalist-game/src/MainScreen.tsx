@@ -8,7 +8,6 @@ import happyImg    from "./assets/happy.png";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// "thinking" is a transient UI-only state shown while waiting for the LLM
 export type CapitalistMood =
   | "idle" | "thinking" | "angry" | "pleased" | "ecstatic" | "disgusted";
 
@@ -21,11 +20,13 @@ export interface EvalResponse {
 }
 
 export interface IdeaRecord {
-  id:        string;
-  text:      string;
-  score:     number;
-  isGolden:  boolean;
-  createdAt: string;
+  id:            string;
+  text:          string;             // title з останньої ітерації (Gemini)
+  description:   string;             // опис обрізаний для превью
+  score:         number;
+  isGolden:      boolean;
+  createdAt:     string;
+  fullIteration: BackendIteration;   // повні дані для модалки
 }
 
 interface GlobalIdea {
@@ -94,12 +95,20 @@ function avgScore(ranking: BackendIteration["ranking"]): number {
 function toIdeaRecord(idea: BackendIdea): IdeaRecord {
   const latest = idea.iterations[idea.iterations.length - 1];
   const score  = latest?.ranking ? avgScore(latest.ranking) : 0;
-  return {
-    id:        idea.id,
-    text:      latest?.title ?? "Untitled",
-    score,
-    isGolden:  score >= 80,
+  const fullDesc = latest?.description ?? "";
+  const fallback: BackendIteration = {
+    version: 1, title: "Untitled", description: "", plan: [],
+    ranking: { originality: 0, difficulty: 0, marketPotential: 0, scalability: 0 },
     createdAt: idea.createdAt,
+  };
+  return {
+    id:            idea.id,
+    text:          latest?.title ?? "Untitled",
+    description:   fullDesc.length > 90 ? fullDesc.slice(0, 90).trimEnd() + "…" : fullDesc,
+    score,
+    isGolden:      score >= 80,
+    createdAt:     idea.createdAt,
+    fullIteration: latest ?? fallback,
   };
 }
 
@@ -170,20 +179,10 @@ function CharacterImage({ mood }: { mood: CapitalistMood }) {
   return (
     <div className="character-wrap">
       <div className={`char-slot ${active === "A" ? "active" : "leaving"}`}>
-        <img
-          className="character-img"
-          src={MOOD_IMAGE[slotA]}
-          alt={`Capitalist – ${slotA}`}
-          draggable={false}
-        />
+        <img className="character-img" src={MOOD_IMAGE[slotA]} alt={`Capitalist – ${slotA}`} draggable={false} />
       </div>
       <div className={`char-slot ${active === "B" ? "active" : "leaving"}`}>
-        <img
-          className="character-img"
-          src={MOOD_IMAGE[slotB]}
-          alt={`Capitalist – ${slotB}`}
-          draggable={false}
-        />
+        <img className="character-img" src={MOOD_IMAGE[slotB]} alt={`Capitalist – ${slotB}`} draggable={false} />
       </div>
     </div>
   );
@@ -248,12 +247,93 @@ function GlobalIdeaBanner() {
   );
 }
 
+// ─── Idea Modal ──────────────────────────────────────────────────────────────
+
+function IdeaModal({ idea, onClose }: { idea: IdeaRecord; onClose: () => void }) {
+  const r = idea.fullIteration.ranking;
+  const metrics = [
+    { label: "Originality",      value: r.originality },
+    { label: "Market Potential", value: r.marketPotential },
+    { label: "Scalability",      value: r.scalability },
+    { label: "Difficulty",       value: r.difficulty },
+  ];
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} aria-modal="true" role="dialog">
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+
+        {/* ── Header ── */}
+        <div className="modal-header">
+          <div className="modal-title-row">
+            {idea.isGolden && (
+              <span className="material-symbols-rounded modal-star">star</span>
+            )}
+            <h2 className="modal-title">{idea.fullIteration.title}</h2>
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <span className="material-symbols-rounded">close</span>
+          </button>
+        </div>
+
+        <div className="modal-body">
+
+          {/* ── Score bar ── */}
+          <div className="modal-score-row">
+            <span className="modal-score-label">SCORE</span>
+            <div className="modal-score-track">
+              <div className="modal-score-fill" style={{ width: `${idea.score}%` }} />
+            </div>
+            <span className="modal-score-num">{idea.score}/100</span>
+          </div>
+
+          {/* ── Description ── */}
+          {idea.fullIteration.description && (
+            <p className="modal-desc">{idea.fullIteration.description}</p>
+          )}
+
+          {/* ── Plan ── */}
+          {idea.fullIteration.plan.length > 0 && (
+            <div className="modal-section">
+              <span className="modal-section-title">PLAN</span>
+              <ol className="modal-plan">
+                {idea.fullIteration.plan.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* ── Ranking ── */}
+          <div className="modal-section">
+            <span className="modal-section-title">RANKING</span>
+            <div className="modal-metrics">
+              {metrics.map(m => (
+                <div key={m.label} className="modal-metric">
+                  <div className="modal-metric-header">
+                    <span className="modal-metric-label">{m.label}</span>
+                    <span className="modal-metric-val">{m.value}</span>
+                  </div>
+                  <div className="modal-metric-track">
+                    <div className="modal-metric-fill" style={{ width: `${m.value}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Ideas Drawer ─────────────────────────────────────────────────────────────
 
 function IdeasDrawer({ onClose }: { onClose: () => void }) {
-  const [ideas,   setIdeas]   = useState<IdeaRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [ideas,        setIdeas]        = useState<IdeaRecord[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState<string | null>(null);
+  const [selectedIdea, setSelectedIdea] = useState<IdeaRecord | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,6 +355,9 @@ function IdeasDrawer({ onClose }: { onClose: () => void }) {
 
   return (
     <>
+      {selectedIdea && (
+        <IdeaModal idea={selectedIdea} onClose={() => setSelectedIdea(null)} />
+      )}
       <div className="drawer-overlay" onClick={onClose} aria-hidden="true" />
       <aside className="drawer" role="dialog" aria-label="Your ideas">
         <div className="drawer-header">
@@ -302,12 +385,21 @@ function IdeasDrawer({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {!loading && !error && ideas.map(idea => (
-            <div key={idea.id} className={`idea-item${idea.isGolden ? " golden" : ""}`}>
-              {idea.isGolden && (
-                <span className="material-symbols-rounded idea-star-icon">star</span>
+            <div key={idea.id} className={`idea-item${idea.isGolden ? " golden" : ""}`}
+                 onClick={() => setSelectedIdea(idea)} role="button" tabIndex={0}
+                 onKeyDown={e => e.key === "Enter" && setSelectedIdea(idea)}>
+              {/* ── Верхній рядок: зірочка + заголовок (Gemini) + score ── */}
+              <div className="idea-item-top">
+                {idea.isGolden && (
+                  <span className="material-symbols-rounded idea-star-icon">star</span>
+                )}
+                <span className="idea-item-text">{idea.text}</span>
+                <span className="idea-item-score">{idea.score}/100</span>
+              </div>
+              {/* ── Опис від Gemini (обрізаний) ── */}
+              {idea.description && (
+                <p className="idea-item-desc">{idea.description}</p>
               )}
-              <span className="idea-item-text">{idea.text}</span>
-              <span className="idea-item-score">{idea.score}/100</span>
             </div>
           ))}
         </div>
@@ -389,7 +481,6 @@ export default function MainScreen() {
     setLastIdeaId(null);
     setIsStarred(false);
 
-    // Показуємо thinking одразу
     setMood("thinking");
     setBubbleKey(k => k + 1);
 
@@ -412,7 +503,7 @@ export default function MainScreen() {
       if (!createRes.ok) throw new Error(`create: ${createRes.status}`);
       const created: BackendIdea = await createRes.json();
 
-      // 2. Покращити через AI
+      // 2. Покращити через Gemini AI
       const improveRes = await Promise.race([
         fetch(`${API}/ideas/${created.id}/improve`, {
           method: "POST",
@@ -423,7 +514,7 @@ export default function MainScreen() {
       if (!improveRes.ok) throw new Error(`improve: ${improveRes.status}`);
       const improved: BackendIdea = await improveRes.json();
 
-      // 3. Формуємо відповідь
+      // 3. Беремо останню ітерацію (Gemini version)
       const latest = improved.iterations[improved.iterations.length - 1];
       const score  = latest?.ranking ? avgScore(latest.ranking) : 50;
       const mood   = scoreToMood(score);
