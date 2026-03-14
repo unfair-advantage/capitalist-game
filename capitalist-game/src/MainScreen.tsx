@@ -29,6 +29,13 @@ export interface IdeaRecord {
 }
 
 // ─── Asset map — works with PNG and SVG (both valid <img src> values) ─────────
+interface GlobalIdea {
+  title:       string;
+  description: string;
+  examples:    string[];
+}
+
+// ─── Asset map ────────────────────────────────────────────────────────────────
 
 const MOOD_IMAGE: Record<CapitalistMood, string> = {
   idle:      neutralImg,
@@ -160,6 +167,48 @@ function QuotaBar({ current, target }: { current: number; target: number }) {
   );
 }
 
+// ─── Global Idea Banner ───────────────────────────────────────────────────────
+
+function GlobalIdeaBanner() {
+  const [idea, setIdea] = useState<GlobalIdea | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    fetch("https://luhi-panove-1.onrender.com/global-idea")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((data: GlobalIdea) => setIdea(data))
+      .catch(() => {});
+  }, []);
+
+  if (!idea) return null;
+
+  return (
+    <div className={`gib-wrap${open ? " gib-open" : ""}`}>
+
+      <button className="gib-pill" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        <span className="material-symbols-rounded gib-icon">lightbulb</span>
+        <span className="gib-label">IDEA OF THE DAY</span>
+        <span className="gib-title-short">{idea.title}</span>
+        <span className="material-symbols-rounded gib-chevron">keyboard_arrow_down</span>
+      </button>
+
+      <div className="gib-dropdown" aria-hidden={!open}>
+        <div className="gib-dropdown-inner">
+          <p className="gib-desc">{idea.description}</p>
+          {idea.examples.length > 0 && (
+            <ul className="gib-examples">
+              {idea.examples.map((ex, i) => (
+                <li key={i}>{ex}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 // ─── Ideas Drawer ─────────────────────────────────────────────────────────────
 
 function IdeasDrawer({ onClose }: { onClose: () => void }) {
@@ -271,7 +320,6 @@ export default function MainScreen() {
     return () => { delete (window as any).setCapitalistMood; };
   }, [triggerShake]);
 
-  // ── Idle message rotation ─────────────────────────────────────────────────
   useEffect(() => {
     const rotate = () => {
       setMood(prev => {
@@ -383,6 +431,9 @@ export default function MainScreen() {
           </span>
         </button>
       </header>
+
+      {/* ── Global Idea Banner (position:absolute, не зсуває layout) ── */}
+      <GlobalIdeaBanner />
 
       {/* ── Main content ── */}
       <main className="main-content">
