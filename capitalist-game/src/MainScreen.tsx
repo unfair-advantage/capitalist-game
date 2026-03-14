@@ -11,10 +11,10 @@ import happyImg    from "./assets/happy.png";
 export type CapitalistMood = "idle" | "angry" | "pleased" | "ecstatic" | "disgusted";
 
 export interface EvalResponse {
-  score:     number;        // 0–100
+  score:     number;
   message:   string;
   mood:      CapitalistMood;
-  ideaId?:   string;        // backend assigns an id to allow starring
+  ideaId?:   string;
   isGolden?: boolean;
 }
 
@@ -26,7 +26,13 @@ export interface IdeaRecord {
   createdAt: string;
 }
 
-// ─── Asset map (supports PNG and SVG — both work as <img src> values) ────────
+interface GlobalIdea {
+  title:       string;
+  description: string;
+  examples:    string[];
+}
+
+// ─── Asset map ────────────────────────────────────────────────────────────────
 
 const MOOD_IMAGE: Record<CapitalistMood, string> = {
   idle:      neutralImg,
@@ -87,6 +93,48 @@ function QuotaBar({ current, target }: { current: number; target: number }) {
   );
 }
 
+// ─── Global Idea Banner ───────────────────────────────────────────────────────
+
+function GlobalIdeaBanner() {
+  const [idea, setIdea] = useState<GlobalIdea | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    fetch("https://luhi-panove-1.onrender.com/global-idea")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((data: GlobalIdea) => setIdea(data))
+      .catch(() => {});
+  }, []);
+
+  if (!idea) return null;
+
+  return (
+    <div className={`gib-wrap${open ? " gib-open" : ""}`}>
+
+      <button className="gib-pill" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        <span className="material-symbols-rounded gib-icon">lightbulb</span>
+        <span className="gib-label">IDEA OF THE DAY</span>
+        <span className="gib-title-short">{idea.title}</span>
+        <span className="material-symbols-rounded gib-chevron">keyboard_arrow_down</span>
+      </button>
+
+      <div className="gib-dropdown" aria-hidden={!open}>
+        <div className="gib-dropdown-inner">
+          <p className="gib-desc">{idea.description}</p>
+          {idea.examples.length > 0 && (
+            <ul className="gib-examples">
+              {idea.examples.map((ex, i) => (
+                <li key={i}>{ex}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 // ─── Ideas Drawer ─────────────────────────────────────────────────────────────
 
 interface DrawerProps {
@@ -98,7 +146,6 @@ function IdeasDrawer({ onClose }: DrawerProps) {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  // ── Fetch idea history from backend ────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -121,7 +168,6 @@ function IdeasDrawer({ onClose }: DrawerProps) {
 
   return (
     <>
-      {/* clicking outside closes the drawer */}
       <div className="drawer-overlay" onClick={onClose} aria-hidden="true" />
 
       <aside className="drawer" role="dialog" aria-label="Your ideas">
@@ -188,17 +234,13 @@ export default function MainScreen() {
   const idleTimerRef  = useRef<ReturnType<typeof setTimeout>>();
   const enterTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // ── Helper: change mood + play enter animation once ───────────────────────
   const applyMood = useCallback((newMood: CapitalistMood) => {
     clearTimeout(enterTimerRef.current);
     setEnterClass(`enter-${newMood}`);
     setMood(newMood);
-    // remove class after animation finishes so it can re-trigger next time
     enterTimerRef.current = setTimeout(() => setEnterClass(""), 700);
   }, []);
 
-  // ── Expose global setter for backend/WS usage ─────────────────────────────
-  // window.setCapitalistMood("angry", "That idea is garbage!")
   useEffect(() => {
     (window as any).setCapitalistMood = (
       newMood:     CapitalistMood,
@@ -214,7 +256,6 @@ export default function MainScreen() {
     return () => { delete (window as any).setCapitalistMood; };
   }, [applyMood]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Idle message rotation ─────────────────────────────────────────────────
   useEffect(() => {
     const rotate = () => {
       setMood(prev => {
@@ -230,7 +271,6 @@ export default function MainScreen() {
     return () => clearTimeout(idleTimerRef.current);
   }, []);
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
   const triggerShake = useCallback(() => {
     setShake(true);
     setTimeout(() => setShake(false), 600);
@@ -242,20 +282,18 @@ export default function MainScreen() {
     setBubbleKey(k => k + 1);
   }, [applyMood]);
 
-  // ── Star current idea ─────────────────────────────────────────────────────
   const starIdea = useCallback(async () => {
     if (!lastIdeaId || isStarred) return;
-    setIsStarred(true);         // optimistic
+    setIsStarred(true);
 
     try {
       const res = await fetch(`/api/ideas/${lastIdeaId}/star`, { method: "POST" });
       if (!res.ok) throw new Error();
     } catch {
-      setIsStarred(false);      // rollback on failure
+      setIsStarred(false);
     }
   }, [lastIdeaId, isStarred]);
 
-  // ── Send idea ─────────────────────────────────────────────────────────────
   const sendIdea = useCallback(async () => {
     const idea = inputText.trim();
     if (!idea || isLoading) return;
@@ -295,8 +333,6 @@ export default function MainScreen() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendIdea(); }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-
   return (
     <div className={`app-shell${shake ? " shake" : ""}`}>
 
@@ -322,6 +358,9 @@ export default function MainScreen() {
         </button>
       </header>
 
+      {/* ── Global Idea Banner (position:absolute, не зсуває layout) ── */}
+      <GlobalIdeaBanner />
+
       {/* ── Main content ── */}
       <main className="main-content">
 
@@ -330,7 +369,7 @@ export default function MainScreen() {
         <div className={`character-wrap mood-${mood}`}>
           <div className="character-shadow" />
           <img
-            key={mood}                            /* remount on mood change so CSS enter-anim fires */
+            key={mood}
             className={`character-img ${enterClass}`}
             src={MOOD_IMAGE[mood]}
             alt={`Capitalist – ${mood}`}
