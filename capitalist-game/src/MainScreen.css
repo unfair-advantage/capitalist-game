@@ -200,6 +200,8 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+
+  transform: translateY(-15px);
 }
 
 .bubble-pop {
