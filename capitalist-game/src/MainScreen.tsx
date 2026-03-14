@@ -490,7 +490,7 @@ export default function MainScreen() {
     );
 
     try {
-      // 1. Створити ідею
+      // 1. Відправляємо ідею (бекенд тепер сам генерує покращення)
       const createRes = await Promise.race([
         fetch(`${API}/ideas`, {
           method:  "POST",
@@ -500,35 +500,37 @@ export default function MainScreen() {
         }),
         timeoutPromise,
       ]);
+      
       if (!createRes.ok) throw new Error(`create: ${createRes.status}`);
       const created: BackendIdea = await createRes.json();
 
-      // 2. Покращити через Gemini AI
-      const improveRes = await Promise.race([
-        fetch(`${API}/ideas/${created.id}/improve`, {
-          method: "POST",
-          signal: controller.signal,
-        }),
-        timeoutPromise,
-      ]);
-      if (!improveRes.ok) throw new Error(`improve: ${improveRes.status}`);
-      const improved: BackendIdea = await improveRes.json();
+      // Другий запит на /improve ВИДАЛЕНО!
 
-      // 3. Беремо останню ітерацію (Gemini version)
-      const latest = improved.iterations[improved.iterations.length - 1];
+      // 2. Беремо останню ітерацію (Gemini version) вже зі створеної ідеї
+      const latest = created.iterations[created.iterations.length - 1];
       const score  = latest?.ranking ? avgScore(latest.ranking) : 50;
       const mood   = scoreToMood(score);
+      
+      // Витягуємо перше речення з опису
+      let firstSentence = "";
+      if (latest?.description) {
+        // Шукаємо текст до першої крапки, знаку оклику або питання включно
+        const match = latest.description.match(/^[^.!?]*[.!?]/);
+        firstSentence = match ? match[0] : latest.description;
+      }
+
       const msg    = latest?.description
-        ? `${latest.title} — ${latest.description}`
+        ? `${latest.title} — ${firstSentence}`
         : "I've seen worse. Barely.";
 
       pushMessage(msg, mood);
       setIdeasToday(n => n + 1);
-      setLastIdeaId(improved.id);
+      setLastIdeaId(created.id);
       if (score >= 80) setIsStarred(true);
       if (mood === "angry" || mood === "disgusted") triggerShake();
 
-    } catch {
+    } catch (error) {
+      console.error("Помилка відправки:", error);
       controller.abort();
       pushMessage(NETWORK_FAILURE_MESSAGE, "angry");
       triggerShake();
